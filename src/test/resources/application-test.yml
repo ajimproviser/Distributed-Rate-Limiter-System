@@ -1,0 +1,47 @@
+# Deliberately tiny limits so tests can exhaust a quota in a handful of calls and
+# assert exact counts rather than sampling statistics.
+ratelimiter:
+  enabled: true
+  fail-open: true
+  default-policy: bucket-small
+  enforcement:
+    # Listed first so it wins over the catch-all below, which is what proves rules
+    # are matched in order.
+    - path: /api/v1/payments/otp
+      policy: window-small
+    # A 2-token bucket that refills once every 5s, so a test can exhaust the quota
+    # and assert a 429 without racing the refill on a slow machine.
+    - path: /api/v1/payments/**
+      policy: bucket-slow
+  policies:
+    bucket-small:
+      algorithm: TOKEN_BUCKET
+      limit: 5
+      window: 1s
+      burst: 5
+      idempotency-ttl: 30s
+      description: 5 tokens, refilling at 5/s (one token per 200ms).
+    bucket-slow:
+      algorithm: TOKEN_BUCKET
+      limit: 2
+      window: 10s
+      burst: 2
+      description: Refills slowly, so exhaustion is stable across a test method.
+    bucket-metered:
+      algorithm: TOKEN_BUCKET
+      limit: 10
+      window: 60s
+      burst: 10
+      description: Roomy bucket with a ~6s refill, so exact remaining counts do not drift mid-test.
+    window-small:
+      algorithm: SLIDING_WINDOW
+      limit: 3
+      window: 2s
+      idempotency-ttl: 30s
+      description: 3 requests per rolling 2 seconds.
+
+logging:
+  level:
+    com.ayushjha.ratelimiter: DEBUG
+    org.testcontainers: WARN
+    com.github.dockerjava: WARN

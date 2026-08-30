@@ -1,0 +1,68 @@
+name: distributed-rate-limiter
+
+# Shared definition for every application replica. The `distributed` profile adds
+# two more instances behind nginx to demonstrate that a single quota is enforced
+# across the fleet, not per process.
+x-app: &app
+  build:
+    context: .
+  environment:
+    REDIS_HOST: redis
+    REDIS_PORT: "6379"
+    SPRING_PROFILES_ACTIVE: docker
+  depends_on:
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    container_name: rate-limiter-redis
+    # Rate limit state is regenerable, so persistence is off: fsync latency would
+    # sit directly in the request path for data that expires in seconds anyway.
+    # volatile-ttl evicts only keys that already carry a TTL, which is all of ours.
+    command: >
+      redis-server
+      --appendonly no
+      --save ""
+      --maxmemory 512mb
+      --maxmemory-policy volatile-ttl
+      --tcp-keepalive 60
+      --tcp-backlog 511
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    <<: *app
+    container_name: rate-limiter-app
+    ports:
+      - "8080:8080"
+
+  app-2:
+    <<: *app
+    profiles: ["distributed"]
+
+  app-3:
+    <<: *app
+    profiles: ["distributed"]
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: rate-limiter-lb
+    profiles: ["distributed"]
+    ports:
+      - "8081:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+      - app-2
+      - app-3
+    restart: unless-stopped

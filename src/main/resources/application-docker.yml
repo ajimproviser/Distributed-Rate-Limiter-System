@@ -1,0 +1,10 @@
+# Tagging log lines with the container hostname makes it obvious which replica
+# served a request when several instances share one quota.
+logging:
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [${HOSTNAME:-local}] %highlight(%-5level) %logger{32} - %msg%n"
+
+management:
+  endpoint:
+    health:
+      show-details: always

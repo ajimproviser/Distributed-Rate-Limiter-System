@@ -1,0 +1,13 @@
+# Normalise line endings so files destined for Linux containers (Lua scripts,
+# nginx config, Dockerfile) never reach them with CRLF, regardless of the
+# platform a contributor commits from.
+* text=auto eol=lf
+
+# Windows-only tooling stays CRLF.
+*.ps1  text eol=crlf
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+
+*.jar  binary
+*.png  binary
+*.jpg  binary

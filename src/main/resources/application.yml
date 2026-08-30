@@ -1,0 +1,120 @@
+spring:
+  application:
+    name: distributed-rate-limiter
+  threads:
+    virtual:
+      enabled: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      database: 0
+      # A rate limiter must never become the slowest hop in the request path:
+      # cap command latency aggressively and fail fast to the fail-open path.
+      timeout: 250ms
+      connect-timeout: 500ms
+      client-name: ${spring.application.name}
+      lettuce:
+        shutdown-timeout: 200ms
+        pool:
+          # Left off deliberately. Lettuce is thread-safe and pipelines commands
+          # over one multiplexed connection, which is the better fit for a workload
+          # that is entirely non-blocking EVALSHA calls: a pool would add borrow and
+          # return overhead per request plus a new failure mode (exhaustion under a
+          # traffic spike) without adding throughput. Enable it only if blocking or
+          # transactional commands are introduced, which need a dedicated connection.
+          enabled: false
+
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+  tomcat:
+    accept-count: 500
+    max-connections: 20000
+    threads:
+      max: 200
+
+ratelimiter:
+  enabled: true
+  # If Redis is unreachable, let traffic through rather than taking the
+  # payment path down with it. Flip to false for hard enforcement.
+  fail-open: true
+  key-prefix: rl
+  default-policy: standard
+  identity:
+    api-key-header: X-API-Key
+    tenant-header: X-Tenant-Id
+    idempotency-header: Idempotency-Key
+    trust-proxy-headers: false
+  # Paths guarded automatically by the servlet filter. Matched top to bottom, so
+  # the most specific rule must come first: the OTP rule below would be shadowed
+  # by the catch-all if the order were reversed.
+  enforcement:
+    - path: /api/v1/payments/otp
+      policy: otp-requests
+    - path: /api/v1/payments/**
+      policy: payments-standard
+  policies:
+    standard:
+      algorithm: TOKEN_BUCKET
+      limit: 100
+      window: 1s
+      burst: 200
+      description: Default tenant quota - 100 req/s sustained, 200 burst.
+    payments-standard:
+      algorithm: TOKEN_BUCKET
+      limit: 1700
+      window: 1s
+      burst: 2000
+      idempotency-ttl: 5m
+      description: Payment authorisation quota - ~100K req/min sustained.
+    payments-premium:
+      algorithm: TOKEN_BUCKET
+      limit: 5000
+      window: 1s
+      burst: 7500
+      idempotency-ttl: 5m
+      description: Premium merchant quota - ~300K req/min sustained.
+    login-attempts:
+      algorithm: SLIDING_WINDOW
+      limit: 5
+      window: 5m
+      idempotency-ttl: 10m
+      description: Brute-force protection - exactly 5 attempts per rolling 5 minutes.
+    otp-requests:
+      algorithm: SLIDING_WINDOW
+      limit: 3
+      window: 1m
+      description: OTP fan-out protection - 3 sends per rolling minute.
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  health:
+    redis:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+    display-request-duration: true
+
+logging:
+  level:
+    com.ayushjha.ratelimiter: INFO
