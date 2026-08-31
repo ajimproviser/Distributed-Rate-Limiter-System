@@ -2,7 +2,6 @@ target/
 .git/
 .gitignore
 .idea/
-.cursor/
 .vscode/
 *.iml
 *.log
