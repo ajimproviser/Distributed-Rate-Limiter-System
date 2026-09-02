@@ -516,5 +516,3 @@ Running on current majors throughout, which required handling four breaking chan
 - **springdoc 3.** The 2.x line targets Spring Boot 3; 3.x is required for Spring Framework 7.
 
 ## License
-
-MIT
